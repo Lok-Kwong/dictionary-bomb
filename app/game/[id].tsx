@@ -1,30 +1,39 @@
+import { router, useLocalSearchParams } from 'expo-router';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
   Animated,
   KeyboardAvoidingView,
   Platform,
-  ScrollView,
   StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
+  useWindowDimensions,
   View,
-  ActivityIndicator,
 } from 'react-native';
-import { router, useLocalSearchParams } from 'expo-router';
 import { Colors, S } from '../../constants/theme';
-import { getUserId, getUsername } from '../../lib/storage';
 import {
   Game,
   Player,
+  resetGame,
   startGame,
   submitTurn,
-  resetGame,
   subscribeToGame,
 } from '../../lib/gameService';
+import { getUserId } from '../../lib/storage';
 
-const TURN_DURATION_MS = 10_000;
-const TIMEOUT_GRACE_MS = 2_000; // non-current players wait this extra time before triggering timeout
+const TURN_DURATION_MS = 100_000;
+const TIMEOUT_GRACE_MS = 2_000;
+
+const AVATAR_COLORS = ['#E74C3C', '#3498DB', '#2ECC71', '#F39C12', '#9B59B6', '#1ABC9C', '#E67E22'];
+function avatarColor(id: string): string {
+  let h = 0;
+  for (const c of id) h = (h << 5) - h + c.charCodeAt(0);
+  return AVATAR_COLORS[Math.abs(h) % AVATAR_COLORS.length];
+}
+
+// ── Main screen ─────────────────────────────────────────────────
 
 export default function GameScreen() {
   const { id: gameCode } = useLocalSearchParams<{ id: string }>();
@@ -36,33 +45,39 @@ export default function GameScreen() {
   const [guess, setGuess] = useState('');
   const [timeLeft, setTimeLeft] = useState(10);
   const [submitting, setSubmitting] = useState(false);
-  const [feedback, setFeedback] = useState<'correct' | 'wrong' | null>(null);
+  const submittingRef = useRef(false);
+  const [feedbackInfo, setFeedbackInfo] = useState<{
+    playerId: string;
+    type: 'correct' | 'wrong';
+    uid: string;
+  } | null>(null);
+  const gameRef = useRef<Game | null>(null);
 
   const timerAnim = useRef(new Animated.Value(1)).current;
+  const pulseAnim = useRef(new Animated.Value(1)).current;
   const timerAnimRef = useRef<Animated.CompositeAnimation | null>(null);
+  const pulseAnimRef = useRef<Animated.CompositeAnimation | null>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const activeTurnId = useRef('');
 
-  // Load user identity
-  useEffect(() => {
-    getUserId().then(setUserId);
-  }, []);
+  useEffect(() => { getUserId().then(setUserId); }, []);
 
-  // Subscribe to game
   useEffect(() => {
     if (!gameCode) return;
     const unsub = subscribeToGame(gameCode as string, (g) => {
       if (g === null) setNotFound(true);
+      gameRef.current = g;
       setGame(g);
       setLoadingGame(false);
     });
     return unsub;
   }, [gameCode]);
 
-  // Manage timer when turn changes
+  // Manage timer + pulse when turn changes
   useEffect(() => {
     if (!game || game.status !== 'active') {
       timerAnimRef.current?.stop();
+      pulseAnimRef.current?.stop();
       if (intervalRef.current) clearInterval(intervalRef.current);
       return;
     }
@@ -70,8 +85,8 @@ export default function GameScreen() {
     const currentTurnId = game.turnId;
     activeTurnId.current = currentTurnId;
     setGuess('');
-    setFeedback(null);
     setSubmitting(false);
+    submittingRef.current = false;
 
     const elapsed = Date.now() - game.timerStart;
     const remaining = Math.max(0, TURN_DURATION_MS - elapsed);
@@ -85,6 +100,9 @@ export default function GameScreen() {
     });
     timerAnimRef.current.start();
 
+    pulseAnimRef.current?.stop();
+    pulseAnim.setValue(1);
+
     setTimeLeft(Math.ceil(remaining / 1000));
 
     if (intervalRef.current) clearInterval(intervalRef.current);
@@ -93,13 +111,25 @@ export default function GameScreen() {
     const graceMs = isCurrentPlayer ? 0 : TIMEOUT_GRACE_MS;
 
     intervalRef.current = setInterval(() => {
-      const now = Date.now();
-      const timeLeftMs = game.timerStart + TURN_DURATION_MS - now;
-      setTimeLeft(Math.max(0, Math.ceil(timeLeftMs / 1000)));
+      const timeLeftMs = game.timerStart + TURN_DURATION_MS - Date.now();
+      const secs = Math.max(0, Math.ceil(timeLeftMs / 1000));
+      setTimeLeft(secs);
+
+      // Start pulsing bomb at 3 seconds
+      if (secs <= 3 && secs > 0 && !pulseAnimRef.current) {
+        pulseAnimRef.current = Animated.loop(
+          Animated.sequence([
+            Animated.timing(pulseAnim, { toValue: 1.18, duration: 200, useNativeDriver: false }),
+            Animated.timing(pulseAnim, { toValue: 1, duration: 200, useNativeDriver: false }),
+          ])
+        );
+        pulseAnimRef.current.start();
+      }
 
       if (timeLeftMs <= -graceMs) {
         clearInterval(intervalRef.current!);
-        if (activeTurnId.current === currentTurnId) {
+        intervalRef.current = null;
+        if (activeTurnId.current === currentTurnId && !submittingRef.current) {
           handleTurnEnd(false, currentTurnId);
         }
       }
@@ -108,40 +138,33 @@ export default function GameScreen() {
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current);
       timerAnimRef.current?.stop();
+      pulseAnimRef.current?.stop();
     };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [game?.turnId, userId]);
 
   const handleTurnEnd = useCallback(
     async (isCorrect: boolean, turnId: string) => {
-      if (submitting) return;
+      if (submittingRef.current) return;
+      submittingRef.current = true;
       setSubmitting(true);
-      if (isCorrect) setFeedback('correct');
-      else setFeedback('wrong');
+      const g = gameRef.current;
+      if (g) {
+        const playerId = g.playerOrder[g.currentPlayerIndex];
+        setFeedbackInfo({ playerId, type: isCorrect ? 'correct' : 'wrong', uid: turnId });
+      }
       await submitTurn(gameCode as string, isCorrect, turnId);
-      // submitting flag is reset when new turnId arrives via subscription
     },
-    [gameCode, submitting],
+    [gameCode],
   );
 
   async function handleSubmitGuess() {
-    if (!game || submitting) return;
-    const currentTurnId = game.turnId;
+    if (!game || submittingRef.current) return;
     const correct = guess.trim().toLowerCase() === game.currentWord.toLowerCase();
-    if (!correct) setFeedback('wrong');
-    await handleTurnEnd(correct, currentTurnId);
+    await handleTurnEnd(correct, game.turnId);
   }
 
-  async function handleStart() {
-    if (!gameCode) return;
-    await startGame(gameCode as string);
-  }
-
-  async function handleReset() {
-    if (!gameCode) return;
-    await resetGame(gameCode as string);
-  }
-
-  // ── Render helpers ──────────────────────────────────────────────
+  // ── Loading / not found ──────────────────────────────────────
 
   if (loadingGame) {
     return (
@@ -163,7 +186,13 @@ export default function GameScreen() {
   }
 
   if (game.status === 'finished') {
-    return <FinishedScreen game={game} userId={userId} onReset={handleReset} />;
+    return (
+      <FinishedScreen
+        game={game}
+        userId={userId}
+        onReset={() => resetGame(gameCode as string)}
+      />
+    );
   }
 
   if (game.status === 'waiting') {
@@ -172,15 +201,16 @@ export default function GameScreen() {
         game={game}
         gameCode={gameCode as string}
         userId={userId}
-        onStart={handleStart}
+        onStart={() => startGame(gameCode as string)}
       />
     );
   }
 
-  // Active game
+  // ── Active game ──────────────────────────────────────────────
+
   const currentPlayerId = game.playerOrder[game.currentPlayerIndex];
-  const currentPlayer = game.players[currentPlayerId];
   const isMyTurn = currentPlayerId === userId;
+
   const timerColor = timerAnim.interpolate({
     inputRange: [0, 0.3, 1],
     outputRange: [Colors.primary, Colors.warning, Colors.success],
@@ -191,96 +221,308 @@ export default function GameScreen() {
       style={styles.container}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
-      <ScrollView
-        style={styles.scroll}
-        contentContainerStyle={styles.scrollContent}
-        keyboardShouldPersistTaps="handled"
-      >
-        {/* Header */}
-        <View style={styles.activeHeader}>
-          <View>
-            <Text style={styles.turnLabel}>
-              {isMyTurn ? '💣 YOUR TURN' : `💣 ${currentPlayer?.username?.toUpperCase()}'S TURN`}
-            </Text>
-          </View>
-          <Animated.Text style={[styles.timerNumber, { color: timerColor }]}>
-            {timeLeft}
-          </Animated.Text>
-        </View>
+      {/* Definition */}
+      <View style={styles.definitionSection}>
+        <Text style={styles.defLabel}>DEFINITION</Text>
+        <Text style={styles.defText} numberOfLines={4}>
+          {game.currentDefinition}
+        </Text>
+      </View>
 
-        {/* Timer bar */}
-        <View style={styles.timerBarBg}>
-          <Animated.View
-            style={[
-              styles.timerBarFill,
-              { flex: timerAnim, backgroundColor: timerColor },
-            ]}
-          />
-          <Animated.View style={{ flex: Animated.subtract(1, timerAnim) }} />
-        </View>
-
-        {/* Feedback flash */}
-        {feedback === 'correct' && (
-          <View style={[styles.feedbackBanner, { backgroundColor: Colors.success }]}>
-            <Text style={styles.feedbackText}>✓ Correct! New word incoming…</Text>
-          </View>
-        )}
-        {feedback === 'wrong' && (
-          <View style={[styles.feedbackBanner, { backgroundColor: Colors.primary }]}>
-            <Text style={styles.feedbackText}>✗ Wrong — bomb passed!</Text>
-          </View>
-        )}
-
-        {/* Definition card */}
-        <View style={styles.definitionCard}>
-          <Text style={styles.definitionLabel}>DEFINITION</Text>
-          <Text style={styles.definitionText}>{game.currentDefinition}</Text>
-        </View>
-
-        {/* Input (only for current player) */}
-        {isMyTurn && !submitting && (
-          <View style={styles.guessSection}>
-            <TextInput
-              style={styles.guessInput}
-              value={guess}
-              onChangeText={setGuess}
-              placeholder="Type the word…"
-              placeholderTextColor={Colors.textMuted}
-              autoCapitalize="none"
-              autoCorrect={false}
-              autoFocus
-              returnKeyType="done"
-              onSubmitEditing={handleSubmitGuess}
-            />
-            <TouchableOpacity
-              style={[styles.submitBtn, !guess.trim() && styles.disabled]}
-              onPress={handleSubmitGuess}
-              activeOpacity={0.85}
-              disabled={!guess.trim()}
-            >
-              <Text style={styles.submitBtnText}>Submit Guess</Text>
-            </TouchableOpacity>
-          </View>
-        )}
-
-        {!isMyTurn && (
-          <View style={styles.watchingBanner}>
-            <Text style={styles.watchingText}>👀 Watching…</Text>
-          </View>
-        )}
-
-        {/* Player list */}
-        <PlayerList
+      {/* Circular arena */}
+      <View style={styles.arenaContainer}>
+        <ArenaView
           game={game}
           userId={userId}
           currentPlayerId={currentPlayerId}
+          timeLeft={timeLeft}
+          timerColor={timerColor}
+          pulseAnim={pulseAnim}
+          feedbackInfo={feedbackInfo}
         />
-      </ScrollView>
+      </View>
+
+      {/* Input */}
+      {isMyTurn && !submitting ? (
+        <View style={styles.inputSection}>
+          <TextInput
+            style={styles.guessInput}
+            value={guess}
+            onChangeText={setGuess}
+            placeholder="Type the word…"
+            placeholderTextColor={Colors.textMuted}
+            autoCapitalize="none"
+            autoCorrect={false}
+            autoFocus
+            returnKeyType="done"
+            onSubmitEditing={handleSubmitGuess}
+          />
+          <TouchableOpacity
+            style={[styles.submitBtn, !guess.trim() && styles.disabled]}
+            onPress={handleSubmitGuess}
+            disabled={!guess.trim()}
+            activeOpacity={0.85}
+          >
+            <Text style={styles.submitBtnText}>Submit</Text>
+          </TouchableOpacity>
+        </View>
+      ) : !submitting ? (
+        <View style={styles.watchingBanner}>
+          <Text style={styles.watchingText}> Watching…</Text>
+        </View>
+      ) : null}
     </KeyboardAvoidingView>
   );
 }
 
-// ── Sub-screens ─────────────────────────────────────────────────
+// ── Arena (bomb + players in a circle) ──────────────────────────
+
+function ArenaView({
+  game,
+  userId,
+  currentPlayerId,
+  timeLeft,
+  timerColor,
+  pulseAnim,
+  feedbackInfo,
+}: {
+  game: Game;
+  userId: string;
+  currentPlayerId: string;
+  timeLeft: number;
+  timerColor: Animated.AnimatedInterpolation<string>;
+  pulseAnim: Animated.Value;
+  feedbackInfo: { playerId: string; type: 'correct' | 'wrong'; uid: string } | null;
+}) {
+  const { width } = useWindowDimensions();
+  const ARENA = Math.min(width - 32, 320);
+  const RADIUS = ARENA * 0.37;
+  const CENTER = ARENA / 2;
+
+  // Pre-compute player positions
+  const positions = game.playerOrder.map((_, i) => {
+    const angle = (i / game.playerOrder.length) * 2 * Math.PI - Math.PI / 2;
+    return {
+      x: CENTER + RADIUS * Math.cos(angle),
+      y: CENTER + RADIUS * Math.sin(angle),
+    };
+  });
+
+  return (
+    <View style={{ width: ARENA, height: ARENA }}>
+      {/* Connecting line from bomb to current player */}
+      {game.playerOrder.map((playerId, i) => {
+        if (playerId !== currentPlayerId) return null;
+        const angle = (i / game.playerOrder.length) * 2 * Math.PI - Math.PI / 2;
+        const lineLen = RADIUS - 46;
+        return (
+          <View
+            key={`line-${playerId}`}
+            style={{
+              position: 'absolute',
+              left: CENTER,
+              top: CENTER - 1,
+              width: lineLen,
+              height: 2,
+              backgroundColor: Colors.primary,
+              opacity: 0.5,
+              transformOrigin: 'left center',
+              transform: [{ rotate: `${angle}rad` }],
+            } as any}
+          />
+        );
+      })}
+
+      {/* Player avatars */}
+      {game.playerOrder.map((playerId, i) => {
+        const player = game.players[playerId];
+        if (!player) return null;
+        const { x, y } = positions[i];
+        return (
+          <PlayerAvatar
+            key={playerId}
+            player={player}
+            playerId={playerId}
+            x={x}
+            y={y}
+            isCurrent={playerId === currentPlayerId}
+            isMe={playerId === userId}
+          />
+        );
+      })}
+
+      {/* Feedback icons floating above avatars */}
+      {feedbackInfo != null && (() => {
+        const idx = game.playerOrder.indexOf(feedbackInfo.playerId);
+        return idx !== -1 ? (
+          <FeedbackIcon
+            key={feedbackInfo.uid}
+            type={feedbackInfo.type}
+            x={positions[idx].x}
+            y={positions[idx].y}
+          />
+        ) : null;
+      })()}
+
+      {/* Bomb in center */}
+      <BombCenter
+        center={CENTER}
+        timeLeft={timeLeft}
+        timerColor={timerColor}
+        pulseAnim={pulseAnim}
+      />
+    </View>
+  );
+}
+
+function FeedbackIcon({
+  type,
+  x,
+  y,
+}: {
+  type: 'correct' | 'wrong';
+  x: number;
+  y: number;
+}) {
+  const translateY = useRef(new Animated.Value(0)).current;
+  const translateX = useRef(new Animated.Value(0)).current;
+  const opacity = useRef(new Animated.Value(1)).current;
+  const scale = useRef(new Animated.Value(0.3)).current;
+
+  useEffect(() => {
+    const floatUp = Animated.timing(translateY, {
+      toValue: -64,
+      duration: 1000,
+      useNativeDriver: true,
+    });
+    const fadeOut = Animated.sequence([
+      Animated.delay(450),
+      Animated.timing(opacity, { toValue: 0, duration: 550, useNativeDriver: true }),
+    ]);
+
+    if (type === 'correct') {
+      Animated.parallel([
+        Animated.spring(scale, { toValue: 1, speed: 28, bounciness: 14, useNativeDriver: true }),
+        floatUp,
+        fadeOut,
+      ]).start();
+    } else {
+      Animated.parallel([
+        Animated.spring(scale, { toValue: 1, speed: 30, bounciness: 2, useNativeDriver: true }),
+        Animated.sequence([
+          Animated.timing(translateX, { toValue: -10, duration: 65, useNativeDriver: true }),
+          Animated.timing(translateX, { toValue: 10, duration: 65, useNativeDriver: true }),
+          Animated.timing(translateX, { toValue: -7, duration: 55, useNativeDriver: true }),
+          Animated.timing(translateX, { toValue: 0, duration: 55, useNativeDriver: true }),
+          floatUp,
+        ]),
+        fadeOut,
+      ]).start();
+    }
+  }, []);
+
+  return (
+    <Animated.View
+      pointerEvents="none"
+      style={{
+        position: 'absolute',
+        left: x - 22,
+        top: y - 62,
+        width: 44,
+        height: 44,
+        justifyContent: 'center',
+        alignItems: 'center',
+        transform: [{ translateY }, { translateX }, { scale }],
+        opacity,
+        zIndex: 100,
+      }}
+    >
+      <Text style={{ fontSize: 30, lineHeight: 36 }}>
+        {type === 'correct' ? '✅' : '❌'}
+      </Text>
+    </Animated.View>
+  );
+}
+
+function PlayerAvatar({
+  player,
+  playerId,
+  x,
+  y,
+  isCurrent,
+  isMe,
+}: {
+  player: Player;
+  playerId: string;
+  x: number;
+  y: number;
+  isCurrent: boolean;
+  isMe: boolean;
+}) {
+  const color = avatarColor(playerId);
+  const initial = (player.username[0] ?? '?').toUpperCase();
+  const name = player.username.length > 9 ? player.username.slice(0, 8) + '…' : player.username;
+
+  return (
+    <View
+      style={[
+        styles.avatarContainer,
+        { position: 'absolute', left: x - 28, top: y - 28 },
+      ]}
+    >
+      <View
+        style={[
+          styles.avatarCircle,
+          { backgroundColor: color },
+          isCurrent && styles.avatarCurrentRing,
+          !player.isAlive && styles.avatarDead,
+        ]}
+      >
+        <Text style={styles.avatarInitial}>{initial}</Text>
+      </View>
+      <Text style={[styles.avatarName, isMe && { color: Colors.text }]} numberOfLines={1}>
+        {name}
+      </Text>
+      <Text style={styles.avatarLives}>
+        {player.isAlive ? '❤️'.repeat(player.lives) : '💀'}
+      </Text>
+    </View>
+  );
+}
+
+function BombCenter({
+  center,
+  timeLeft,
+  timerColor,
+  pulseAnim,
+}: {
+  center: number;
+  timeLeft: number;
+  timerColor: Animated.AnimatedInterpolation<string>;
+  pulseAnim: Animated.Value;
+}) {
+  return (
+    <Animated.View
+      style={[
+        styles.bombContainer,
+        {
+          position: 'absolute',
+          left: center - 46,
+          top: center - 46,
+          borderColor: timerColor,
+          transform: [{ scale: pulseAnim }],
+        },
+      ]}
+    >
+      <Text style={styles.bombEmoji}>💣</Text>
+      <Animated.Text style={[styles.bombTimer, { color: timerColor }]}>
+        {timeLeft}
+      </Animated.Text>
+    </Animated.View>
+  );
+}
+
+// ── Waiting screen ───────────────────────────────────────────────
 
 function WaitingScreen({
   game,
@@ -295,7 +537,6 @@ function WaitingScreen({
 }) {
   const isHost = game.hostId === userId;
   const playerCount = Object.keys(game.players).length;
-  const canStart = playerCount >= 2;
 
   return (
     <View style={styles.container}>
@@ -305,13 +546,14 @@ function WaitingScreen({
         <View style={styles.codeCard}>
           <Text style={styles.codeLabel}>GAME CODE</Text>
           <Text style={styles.codeValue}>{gameCode}</Text>
-          <Text style={styles.codeHint}>Share this with friends to join</Text>
+          <Text style={styles.codeHint}>Share with friends to join</Text>
         </View>
 
-        <View style={styles.waitingPlayers}>
-          <Text style={styles.waitingPlayersTitle}>Players ({playerCount})</Text>
+        <View style={styles.playerListSection}>
+          <Text style={styles.playerListTitle}>Players ({playerCount})</Text>
           {Object.entries(game.players).map(([id, p]) => (
             <View key={id} style={styles.waitingPlayerRow}>
+              <View style={[styles.waitingDot, { backgroundColor: avatarColor(id) }]} />
               <Text style={styles.waitingPlayerName}>
                 {p.username}
                 {id === game.hostId ? '  👑' : ''}
@@ -324,13 +566,13 @@ function WaitingScreen({
 
         {isHost ? (
           <TouchableOpacity
-            style={[styles.startBtn, !canStart && styles.disabled]}
+            style={[styles.startBtn, playerCount < 2 && styles.disabled]}
             onPress={onStart}
-            disabled={!canStart}
+            disabled={playerCount < 2}
             activeOpacity={0.85}
           >
             <Text style={styles.startBtnText}>
-              {canStart ? 'Start Game 💣' : 'Need at least 2 players'}
+              {playerCount >= 2 ? 'Start Game 💣' : 'Need at least 2 players'}
             </Text>
           </TouchableOpacity>
         ) : (
@@ -347,6 +589,8 @@ function WaitingScreen({
     </View>
   );
 }
+
+// ── Finished screen ──────────────────────────────────────────────
 
 function FinishedScreen({
   game,
@@ -369,9 +613,7 @@ function FinishedScreen({
           {isWinner ? 'You Win!' : `${winner?.username ?? 'Someone'} Wins!`}
         </Text>
         <Text style={styles.finishedSub}>
-          {isWinner
-            ? 'Last one standing!'
-            : `Better luck next time, ${game.players[userId]?.username}.`}
+          {isWinner ? 'Last one standing!' : `Better luck next round.`}
         </Text>
 
         <View style={styles.finalScores}>
@@ -379,12 +621,15 @@ function FinishedScreen({
             .sort(([, a], [, b]) => b.lives - a.lives)
             .map(([id, p]) => (
               <View key={id} style={styles.finalScoreRow}>
-                <Text style={styles.finalScoreName}>
-                  {id === game.winnerId ? '🏆 ' : ''}
-                  {p.username}
-                  {id === userId ? ' (you)' : ''}
-                </Text>
-                <Text style={[styles.finalScoreLives, !p.isAlive && { opacity: 0.4 }]}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                  <View style={[styles.waitingDot, { backgroundColor: avatarColor(id) }]} />
+                  <Text style={styles.finalScoreName}>
+                    {id === game.winnerId ? '🏆 ' : ''}
+                    {p.username}
+                    {id === userId ? ' (you)' : ''}
+                  </Text>
+                </View>
+                <Text style={[styles.finalScoreLives, !p.isAlive && { opacity: 0.35 }]}>
                   {p.isAlive ? '❤️'.repeat(p.lives) : '💀'}
                 </Text>
               </View>
@@ -392,7 +637,7 @@ function FinishedScreen({
         </View>
 
         {isHost && (
-          <TouchableOpacity style={styles.startBtn} onPress={onReset} activeOpacity={0.85}>
+          <TouchableOpacity style={styles.playAgainBtn} onPress={onReset} activeOpacity={0.85}>
             <Text style={styles.startBtnText}>Play Again 🔄</Text>
           </TouchableOpacity>
         )}
@@ -405,114 +650,107 @@ function FinishedScreen({
   );
 }
 
-function PlayerList({
-  game,
-  userId,
-  currentPlayerId,
-}: {
-  game: Game;
-  userId: string;
-  currentPlayerId: string;
-}) {
-  return (
-    <View style={styles.playerList}>
-      <Text style={styles.playerListTitle}>PLAYERS</Text>
-      {game.playerOrder.map((id) => {
-        const p: Player = game.players[id];
-        if (!p) return null;
-        const isCurrent = id === currentPlayerId;
-        const isMe = id === userId;
-        return (
-          <View
-            key={id}
-            style={[
-              styles.playerRow,
-              isCurrent && styles.playerRowCurrent,
-              !p.isAlive && styles.playerRowDead,
-            ]}
-          >
-            <Text style={[styles.playerName, !p.isAlive && styles.deadText]}>
-              {isCurrent ? '💣 ' : ''}
-              {p.username}
-              {isMe ? ' (you)' : ''}
-            </Text>
-            <Text style={styles.playerLives}>
-              {p.isAlive ? '❤️'.repeat(p.lives) : '💀'}
-            </Text>
-          </View>
-        );
-      })}
-    </View>
-  );
-}
-
-// ── Styles ──────────────────────────────────────────────────────
+// ── Styles ───────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.bg },
-  scroll: { flex: 1 },
-  scrollContent: { paddingHorizontal: 20, paddingTop: 56, paddingBottom: 40, gap: 16 },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: Colors.bg, gap: 16 },
   errorText: { ...S.h3, color: Colors.textSub },
+  backBtn: {
+    backgroundColor: Colors.card, borderRadius: 12, paddingVertical: 12,
+    paddingHorizontal: 24, borderWidth: 1, borderColor: Colors.border,
+  },
+  backBtnText: { color: Colors.text, fontWeight: '600', fontSize: 15 },
+  disabled: { opacity: 0.4 },
 
   // Active game
-  activeHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+  definitionSection: {
+    paddingHorizontal: 20,
+    paddingTop: 56,
+    paddingBottom: 12,
+    gap: 6,
+  },
+  defLabel: { fontSize: 11, fontWeight: '700', color: Colors.textMuted, letterSpacing: 1.5 },
+  defText: { ...S.body, fontSize: 17, lineHeight: 26 },
+
+  arenaContainer: {
+    flex: 1,
+    justifyContent: 'center',
     alignItems: 'center',
   },
-  turnLabel: { fontSize: 13, fontWeight: '700', color: Colors.textSub, letterSpacing: 1 },
-  timerNumber: { ...S.mono, fontSize: 44 },
 
-  timerBarBg: {
-    height: 6,
-    backgroundColor: Colors.border,
-    borderRadius: 3,
-    flexDirection: 'row',
-    overflow: 'hidden',
+  // Bomb
+  bombContainer: {
+    width: 92,
+    height: 92,
+    borderRadius: 46,
+    borderWidth: 3,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: Colors.surface,
+    gap: 0,
   },
-  timerBarFill: { borderRadius: 3 },
+  bombEmoji: { fontSize: 38, lineHeight: 46 },
+  bombTimer: { fontSize: 18, fontWeight: '800', lineHeight: 22 },
 
-  feedbackBanner: {
-    borderRadius: 10,
-    paddingVertical: 10,
+  // Player avatars
+  avatarContainer: {
+    width: 56,
+    alignItems: 'center',
+    gap: 3,
+  },
+  avatarCircle: {
+    width: 54,
+    height: 54,
+    borderRadius: 27,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: 'transparent',
+  },
+  avatarCurrentRing: {
+    borderColor: Colors.primary,
+    shadowColor: Colors.primary,
+    shadowOpacity: 0.9,
+    shadowRadius: 8,
+    elevation: 8,
+  },
+  avatarDead: { opacity: 0.35 },
+  avatarInitial: { color: '#fff', fontSize: 20, fontWeight: '800' },
+  avatarName: { fontSize: 11, color: Colors.textSub, fontWeight: '600', textAlign: 'center' },
+  avatarLives: { fontSize: 11, textAlign: 'center' },
+
+  // Input
+  inputSection: {
+    flexDirection: 'row',
     paddingHorizontal: 16,
-    alignItems: 'center',
-  },
-  feedbackText: { color: '#fff', fontWeight: '700', fontSize: 15 },
-
-  definitionCard: {
-    backgroundColor: Colors.card,
-    borderRadius: 16,
-    padding: 20,
-    borderWidth: 1,
-    borderColor: Colors.border,
+    paddingBottom: 32,
+    paddingTop: 8,
     gap: 10,
   },
-  definitionLabel: { fontSize: 11, fontWeight: '700', color: Colors.textMuted, letterSpacing: 1.5 },
-  definitionText: { ...S.body, fontSize: 18, lineHeight: 28, color: Colors.text },
-
-  guessSection: { gap: 10 },
   guessInput: {
+    flex: 1,
     backgroundColor: Colors.card,
     borderWidth: 1,
     borderColor: Colors.border,
     borderRadius: 14,
-    paddingHorizontal: 18,
-    paddingVertical: 15,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
     color: Colors.text,
-    fontSize: 17,
+    fontSize: 16,
     fontWeight: '600',
   },
   submitBtn: {
     backgroundColor: Colors.primary,
     borderRadius: 14,
-    paddingVertical: 16,
-    alignItems: 'center',
+    paddingHorizontal: 20,
+    justifyContent: 'center',
   },
-  submitBtnText: { color: '#fff', fontSize: 17, fontWeight: '700' },
+  submitBtnText: { color: '#fff', fontSize: 15, fontWeight: '700' },
 
   watchingBanner: {
+    marginHorizontal: 16,
+    marginBottom: 32,
     backgroundColor: Colors.surface,
     borderRadius: 12,
     paddingVertical: 14,
@@ -522,110 +760,55 @@ const styles = StyleSheet.create({
   },
   watchingText: { ...S.body, color: Colors.textSub },
 
-  playerList: { gap: 8 },
-  playerListTitle: { fontSize: 11, fontWeight: '700', color: Colors.textMuted, letterSpacing: 1.5 },
-  playerRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    backgroundColor: Colors.card,
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderWidth: 1,
-    borderColor: Colors.border,
-  },
-  playerRowCurrent: { borderColor: Colors.primary },
-  playerRowDead: { opacity: 0.4 },
-  playerName: { ...S.body, fontWeight: '600' },
-  deadText: { textDecorationLine: 'line-through' },
-  playerLives: { fontSize: 16 },
-
   // Waiting screen
   waitingInner: { flex: 1, paddingHorizontal: 24, paddingTop: 72, paddingBottom: 32, gap: 20 },
   waitingTitle: { ...S.h1 },
   codeCard: {
-    backgroundColor: Colors.card,
-    borderRadius: 16,
-    padding: 24,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: Colors.border,
-    gap: 6,
+    backgroundColor: Colors.card, borderRadius: 16, padding: 24,
+    alignItems: 'center', borderWidth: 1, borderColor: Colors.border, gap: 6,
   },
   codeLabel: { fontSize: 11, fontWeight: '700', color: Colors.textMuted, letterSpacing: 1.5 },
   codeValue: { fontSize: 36, fontWeight: '800', color: Colors.text, letterSpacing: 8 },
   codeHint: { ...S.small },
-  waitingPlayers: { gap: 8 },
-  waitingPlayersTitle: { ...S.h3, marginBottom: 4 },
+  playerListSection: { gap: 8 },
+  playerListTitle: { ...S.h3, marginBottom: 4 },
   waitingPlayerRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    backgroundColor: Colors.card,
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderWidth: 1,
-    borderColor: Colors.border,
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    backgroundColor: Colors.card, borderRadius: 12,
+    paddingHorizontal: 16, paddingVertical: 12,
+    borderWidth: 1, borderColor: Colors.border,
   },
-  waitingPlayerName: { ...S.body, fontWeight: '600' },
-  waitingLives: { fontSize: 16 },
-
+  waitingDot: { width: 10, height: 10, borderRadius: 5 },
+  waitingPlayerName: { ...S.body, fontWeight: '600', flex: 1 },
+  waitingLives: { fontSize: 15 },
   startBtn: {
-    backgroundColor: Colors.primary,
-    borderRadius: 14,
-    paddingVertical: 16,
-    alignItems: 'center',
-    marginTop: 'auto',
+    backgroundColor: Colors.primary, borderRadius: 14,
+    paddingVertical: 16, alignItems: 'center', marginTop: 'auto',
   },
   startBtnText: { color: '#fff', fontSize: 17, fontWeight: '700' },
   waitingForHost: { flexDirection: 'row', alignItems: 'center', gap: 10, justifyContent: 'center' },
   waitingForHostText: { ...S.body, color: Colors.textSub },
-
   leaveBtn: { alignItems: 'center', paddingVertical: 12 },
   leaveBtnText: { color: Colors.textSub, fontSize: 14 },
-
+  playAgainBtn: {
+    backgroundColor: Colors.primary, borderRadius: 14, width: 150,
+    paddingVertical: 16, alignItems: 'center', marginTop: 'auto',
+  },
   // Finished screen
   finishedInner: {
-    flex: 1,
-    paddingHorizontal: 24,
-    paddingTop: 80,
-    paddingBottom: 32,
-    alignItems: 'center',
-    gap: 12,
+    flex: 1, paddingHorizontal: 24, paddingTop: 80, paddingBottom: 32,
+    alignItems: 'center', gap: 12,
   },
   finishedEmoji: { fontSize: 72 },
   finishedTitle: { ...S.h1, fontSize: 34, textAlign: 'center' },
   finishedSub: { ...S.body, color: Colors.textSub, textAlign: 'center' },
-  finalScores: {
-    width: '100%',
-    gap: 8,
-    marginTop: 12,
-    marginBottom: 8,
-  },
+  finalScores: { width: '100%', gap: 8, marginTop: 12, marginBottom: 8 },
   finalScoreRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    backgroundColor: Colors.card,
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderWidth: 1,
-    borderColor: Colors.border,
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+    backgroundColor: Colors.card, borderRadius: 12,
+    paddingHorizontal: 16, paddingVertical: 12,
+    borderWidth: 1, borderColor: Colors.border,
   },
   finalScoreName: { ...S.body, fontWeight: '600' },
   finalScoreLives: { fontSize: 16 },
-
-  disabled: { opacity: 0.4 },
-  backBtn: {
-    backgroundColor: Colors.card,
-    borderRadius: 12,
-    paddingVertical: 12,
-    paddingHorizontal: 24,
-    borderWidth: 1,
-    borderColor: Colors.border,
-  },
-  backBtnText: { color: Colors.text, fontWeight: '600', fontSize: 15 },
 });
