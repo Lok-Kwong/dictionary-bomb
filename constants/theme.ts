@@ -1,53 +1,22 @@
-/**
- * Below are the colors that are used in the app. The colors are defined in the light and dark mode.
- * There are many other ways to style your app. For example, [Nativewind](https://www.nativewind.dev/), [Tamagui](https://tamagui.dev/), [unistyles](https://reactnativeunistyles.vercel.app), etc.
- */
-
-import { Platform } from 'react-native';
-
-const tintColorLight = '#0a7ea4';
-const tintColorDark = '#fff';
-
 export const Colors = {
-  light: {
-    text: '#11181C',
-    background: '#fff',
-    tint: tintColorLight,
-    icon: '#687076',
-    tabIconDefault: '#687076',
-    tabIconSelected: tintColorLight,
-  },
-  dark: {
-    text: '#ECEDEE',
-    background: '#151718',
-    tint: tintColorDark,
-    icon: '#9BA1A6',
-    tabIconDefault: '#9BA1A6',
-    tabIconSelected: tintColorDark,
-  },
+  bg: '#0A0A0F',
+  surface: '#14141C',
+  card: '#1C1C28',
+  border: '#2C2C3E',
+  primary: '#FF3B30',
+  primaryDim: '#7A1A14',
+  warning: '#FF9F0A',
+  success: '#30D158',
+  text: '#FFFFFF',
+  textSub: '#8E8E9E',
+  textMuted: '#4A4A5A',
 };
 
-export const Fonts = Platform.select({
-  ios: {
-    /** iOS `UIFontDescriptorSystemDesignDefault` */
-    sans: 'system-ui',
-    /** iOS `UIFontDescriptorSystemDesignSerif` */
-    serif: 'ui-serif',
-    /** iOS `UIFontDescriptorSystemDesignRounded` */
-    rounded: 'ui-rounded',
-    /** iOS `UIFontDescriptorSystemDesignMonospaced` */
-    mono: 'ui-monospace',
-  },
-  default: {
-    sans: 'normal',
-    serif: 'serif',
-    rounded: 'normal',
-    mono: 'monospace',
-  },
-  web: {
-    sans: "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
-    serif: "Georgia, 'Times New Roman', serif",
-    rounded: "'SF Pro Rounded', 'Hiragino Maru Gothic ProN', Meiryo, 'MS PGothic', sans-serif",
-    mono: "SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace",
-  },
-});
+export const S = {
+  h1: { fontSize: 32, fontWeight: '800' as const, color: Colors.text, letterSpacing: -0.5 },
+  h2: { fontSize: 22, fontWeight: '700' as const, color: Colors.text },
+  h3: { fontSize: 17, fontWeight: '600' as const, color: Colors.text },
+  body: { fontSize: 16, fontWeight: '400' as const, color: Colors.text, lineHeight: 24 },
+  small: { fontSize: 13, fontWeight: '500' as const, color: Colors.textSub },
+  mono: { fontSize: 28, fontWeight: '800' as const, color: Colors.text, fontVariant: ['tabular-nums'] as any },
+};
