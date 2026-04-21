@@ -3,6 +3,7 @@ import {
   set,
   get,
   update,
+  remove,
   onValue,
   runTransaction,
   serverTimestamp,
@@ -69,6 +70,34 @@ export async function joinGame(gameCode: string, userId: string, username: strin
     [`players/${userId}`]: { username, lives: 2, isAlive: true },
     playerOrder: [...game.playerOrder, userId],
   });
+}
+
+export async function leaveGame(gameCode: string, userId: string): Promise<void> {
+  const gameRef = ref(db, `games/${gameCode}`);
+  const snap = await get(gameRef);
+  if (!snap.exists()) return;
+
+  const game: Game = snap.val();
+  const newPlayerOrder = game.playerOrder.filter((id) => id !== userId);
+
+  if (newPlayerOrder.length === 0) {
+    await remove(gameRef);
+    return;
+  }
+
+  const newPlayers = { ...game.players };
+  delete newPlayers[userId];
+
+  const updates: Record<string, unknown> = {
+    players: newPlayers,
+    playerOrder: newPlayerOrder,
+  };
+
+  if (game.hostId === userId) {
+    updates.hostId = newPlayerOrder[0];
+  }
+
+  await update(gameRef, updates);
 }
 
 export async function startGame(gameCode: string): Promise<void> {
