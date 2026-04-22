@@ -68,7 +68,7 @@ export default function GameScreen() {
 
   useEffect(() => {
     if (game?.status !== 'finished') return;
-    const t = setTimeout(() => setShowFinished(true), 5000);
+    const t = setTimeout(() => setShowFinished(true), 3000);
     return () => clearTimeout(t);
   }, [game?.status]);
 
