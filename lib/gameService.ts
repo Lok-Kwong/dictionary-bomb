@@ -1,11 +1,10 @@
 import {
-  ref,
-  set,
   get,
-  update,
   onValue,
+  ref,
   runTransaction,
-  serverTimestamp,
+  set,
+  update
 } from 'firebase/database';
 import { db } from './firebase';
 import { getRandomWord, getRandomWordExcluding } from './wordDictionary';
@@ -27,6 +26,7 @@ export interface Game {
   timerStart: number;
   turnId: string;
   winnerId?: string;
+  guesses?: Record<string, string>;
 }
 
 function genCode(): string {
@@ -151,6 +151,25 @@ export async function submitTurn(
   });
 }
 
+export async function leaveGame(gameCode: string, userId: string): Promise<void> {
+  await runTransaction(ref(db, `games/${gameCode}`), (game: Game | null) => {
+    if (!game || (game.status !== 'waiting' && game.status !== 'finished')) return game;
+
+    const newPlayers = { ...game.players };
+    delete newPlayers[userId];
+
+    const newOrder = game.playerOrder.filter((id) => id !== userId);
+
+    if (newOrder.length === 0) {
+      return null; // deletes the game node
+    }
+
+    const newHostId = game.hostId === userId ? newOrder[0] : game.hostId;
+
+    return { ...game, players: newPlayers, playerOrder: newOrder, hostId: newHostId };
+  });
+}
+
 export async function resetGame(gameCode: string): Promise<void> {
   const gameRef = ref(db, `games/${gameCode}`);
   const snap = await get(gameRef);
@@ -173,6 +192,10 @@ export async function resetGame(gameCode: string): Promise<void> {
     turnId: '',
     winnerId: null,
   });
+}
+
+export async function setPlayerGuess(gameCode: string, userId: string, guess: string): Promise<void> {
+  await set(ref(db, `games/${gameCode}/guesses/${userId}`), guess || null);
 }
 
 export function subscribeToGame(gameCode: string, onUpdate: (game: Game | null) => void): () => void {

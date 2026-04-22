@@ -1,3 +1,4 @@
+import * as Clipboard from 'expo-clipboard';
 import { router, useLocalSearchParams } from 'expo-router';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
@@ -15,8 +16,10 @@ import {
 import { Colors, S } from '../../constants/theme';
 import {
   Game,
+  leaveGame,
   Player,
   resetGame,
+  setPlayerGuess,
   startGame,
   submitTurn,
   subscribeToGame,
@@ -45,6 +48,7 @@ export default function GameScreen() {
   const [guess, setGuess] = useState('');
   const [timeLeft, setTimeLeft] = useState(10);
   const [submitting, setSubmitting] = useState(false);
+  const [showFinished, setShowFinished] = useState(false);
   const submittingRef = useRef(false);
   const [feedbackInfo, setFeedbackInfo] = useState<{
     playerId: string;
@@ -61,6 +65,12 @@ export default function GameScreen() {
   const activeTurnId = useRef('');
 
   useEffect(() => { getUserId().then(setUserId); }, []);
+
+  useEffect(() => {
+    if (game?.status !== 'finished') return;
+    const t = setTimeout(() => setShowFinished(true), 5000);
+    return () => clearTimeout(t);
+  }, [game?.status]);
 
   useEffect(() => {
     if (!gameCode) return;
@@ -153,9 +163,12 @@ export default function GameScreen() {
         const playerId = g.playerOrder[g.currentPlayerIndex];
         setFeedbackInfo({ playerId, type: isCorrect ? 'correct' : 'wrong', uid: turnId });
       }
-      await submitTurn(gameCode as string, isCorrect, turnId);
+      await Promise.all([
+        setPlayerGuess(gameCode as string, userId, ''),
+        submitTurn(gameCode as string, isCorrect, turnId),
+      ]);
     },
-    [gameCode],
+    [gameCode, userId],
   );
 
   async function handleSubmitGuess() {
@@ -185,12 +198,13 @@ export default function GameScreen() {
     );
   }
 
-  if (game.status === 'finished') {
+  if (game.status === 'finished' && showFinished) {
     return (
       <FinishedScreen
         game={game}
         userId={userId}
-        onReset={() => resetGame(gameCode as string)}
+        onReset={() => { setShowFinished(false); resetGame(gameCode as string); }}
+        onLeave={async () => { await leaveGame(gameCode as string, userId); router.replace('/lobby'); }}
       />
     );
   }
@@ -239,6 +253,7 @@ export default function GameScreen() {
           timerColor={timerColor}
           pulseAnim={pulseAnim}
           feedbackInfo={feedbackInfo}
+          guesses={game.guesses ?? {}}
         />
       </View>
 
@@ -248,7 +263,10 @@ export default function GameScreen() {
           <TextInput
             style={styles.guessInput}
             value={guess}
-            onChangeText={setGuess}
+            onChangeText={(text) => {
+              setGuess(text);
+              setPlayerGuess(gameCode as string, userId, text);
+            }}
             placeholder="Type the word…"
             placeholderTextColor={Colors.textMuted}
             autoCapitalize="none"
@@ -285,6 +303,7 @@ function ArenaView({
   timerColor,
   pulseAnim,
   feedbackInfo,
+  guesses,
 }: {
   game: Game;
   userId: string;
@@ -293,10 +312,11 @@ function ArenaView({
   timerColor: Animated.AnimatedInterpolation<string>;
   pulseAnim: Animated.Value;
   feedbackInfo: { playerId: string; type: 'correct' | 'wrong'; uid: string } | null;
+  guesses: Record<string, string>;
 }) {
   const { width } = useWindowDimensions();
   const ARENA = Math.min(width - 32, 320);
-  const RADIUS = ARENA * 0.37;
+  const RADIUS = ARENA * 0.5;
   const CENTER = ARENA / 2;
 
   // Pre-compute player positions
@@ -314,7 +334,7 @@ function ArenaView({
       {game.playerOrder.map((playerId, i) => {
         if (playerId !== currentPlayerId) return null;
         const angle = (i / game.playerOrder.length) * 2 * Math.PI - Math.PI / 2;
-        const lineLen = RADIUS - 46;
+        const lineLen = RADIUS - 80;
         return (
           <View
             key={`line-${playerId}`}
@@ -347,6 +367,7 @@ function ArenaView({
             y={y}
             isCurrent={playerId === currentPlayerId}
             isMe={playerId === userId}
+            guess={guesses[playerId] ?? ''}
           />
         );
       })}
@@ -451,6 +472,7 @@ function PlayerAvatar({
   y,
   isCurrent,
   isMe,
+  guess,
 }: {
   player: Player;
   playerId: string;
@@ -458,6 +480,7 @@ function PlayerAvatar({
   y: number;
   isCurrent: boolean;
   isMe: boolean;
+  guess: string;
 }) {
   const color = avatarColor(playerId);
   const initial = (player.username[0] ?? '?').toUpperCase();
@@ -486,6 +509,9 @@ function PlayerAvatar({
       <Text style={styles.avatarLives}>
         {player.isAlive ? '❤️'.repeat(player.lives) : '💀'}
       </Text>
+      {!!guess && (
+        <Text style={styles.avatarGuess} numberOfLines={1}>{guess}</Text>
+      )}
     </View>
   );
 }
@@ -537,6 +563,13 @@ function WaitingScreen({
 }) {
   const isHost = game.hostId === userId;
   const playerCount = Object.keys(game.players).length;
+  const [copied, setCopied] = useState(false);
+
+  async function handleCopy() {
+    await Clipboard.setStringAsync(gameCode);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }
 
   return (
     <View style={styles.container}>
@@ -546,6 +579,9 @@ function WaitingScreen({
         <View style={styles.codeCard}>
           <Text style={styles.codeLabel}>GAME CODE</Text>
           <Text style={styles.codeValue}>{gameCode}</Text>
+          <TouchableOpacity style={styles.copyBtn} onPress={handleCopy} activeOpacity={0.75}>
+            <Text style={styles.copyBtnText}>{copied ? 'Copied!' : 'Copy Code'}</Text>
+          </TouchableOpacity>
           <Text style={styles.codeHint}>Share with friends to join</Text>
         </View>
 
@@ -582,7 +618,13 @@ function WaitingScreen({
           </View>
         )}
 
-        <TouchableOpacity style={styles.leaveBtn} onPress={() => router.replace('/lobby')}>
+        <TouchableOpacity
+          style={styles.leaveBtn}
+          onPress={async () => {
+            await leaveGame(gameCode, userId);
+            router.replace('/lobby');
+          }}
+        >
           <Text style={styles.leaveBtnText}>Leave</Text>
         </TouchableOpacity>
       </View>
@@ -596,10 +638,12 @@ function FinishedScreen({
   game,
   userId,
   onReset,
+  onLeave,
 }: {
   game: Game;
   userId: string;
   onReset: () => void;
+  onLeave: () => void;
 }) {
   const isHost = game.hostId === userId;
   const winner = game.winnerId ? game.players[game.winnerId] : null;
@@ -642,7 +686,7 @@ function FinishedScreen({
           </TouchableOpacity>
         )}
 
-        <TouchableOpacity style={styles.leaveBtn} onPress={() => router.replace('/lobby')}>
+        <TouchableOpacity style={styles.leaveBtn} onPress={onLeave}>
           <Text style={styles.leaveBtnText}>Back to Lobby</Text>
         </TouchableOpacity>
       </View>
@@ -719,6 +763,7 @@ const styles = StyleSheet.create({
   avatarInitial: { color: '#fff', fontSize: 20, fontWeight: '800' },
   avatarName: { fontSize: 11, color: Colors.textSub, fontWeight: '600', textAlign: 'center' },
   avatarLives: { fontSize: 11, textAlign: 'center' },
+  avatarGuess: { fontSize: 11, color: Colors.textMuted, textAlign: 'center', fontStyle: 'italic', maxWidth: 64 },
 
   // Input
   inputSection: {
@@ -769,6 +814,11 @@ const styles = StyleSheet.create({
   },
   codeLabel: { fontSize: 11, fontWeight: '700', color: Colors.textMuted, letterSpacing: 1.5 },
   codeValue: { fontSize: 36, fontWeight: '800', color: Colors.text, letterSpacing: 8 },
+  copyBtn: {
+    backgroundColor: Colors.surface, borderRadius: 10, paddingVertical: 8,
+    paddingHorizontal: 20, borderWidth: 1, borderColor: Colors.border,
+  },
+  copyBtnText: { color: Colors.text, fontSize: 13, fontWeight: '600' },
   codeHint: { ...S.small },
   playerListSection: { gap: 8 },
   playerListTitle: { ...S.h3, marginBottom: 4 },
