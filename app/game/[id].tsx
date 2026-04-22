@@ -216,6 +216,10 @@ export default function GameScreen() {
         gameCode={gameCode as string}
         userId={userId}
         onStart={() => startGame(gameCode as string)}
+        onLeave={async () => {
+          await leaveGame(gameCode as string, userId);
+          router.replace('/lobby');
+        }}
       />
     );
   }
@@ -555,11 +559,13 @@ function WaitingScreen({
   gameCode,
   userId,
   onStart,
+  onLeave,
 }: {
   game: Game;
   gameCode: string;
   userId: string;
   onStart: () => void;
+  onLeave: () => void;
 }) {
   const isHost = game.hostId === userId;
   const playerCount = Object.keys(game.players).length;
@@ -618,13 +624,7 @@ function WaitingScreen({
           </View>
         )}
 
-        <TouchableOpacity
-          style={styles.leaveBtn}
-          onPress={async () => {
-            await leaveGame(gameCode, userId);
-            router.replace('/lobby');
-          }}
-        >
+        <TouchableOpacity style={styles.leaveBtn} onPress={onLeave}>
           <Text style={styles.leaveBtnText}>Leave</Text>
         </TouchableOpacity>
       </View>
