@@ -9,7 +9,7 @@ export const Colors = {
   success: '#30D158',
   text: '#FFFFFF',
   textSub: '#8E8E9E',
-  textMuted: '#4A4A5A',
+  textMuted: '#babaca',
 };
 
 export const S = {

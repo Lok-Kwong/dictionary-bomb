@@ -26,7 +26,7 @@ import {
 } from '../../lib/gameService';
 import { getUserId } from '../../lib/storage';
 
-const TURN_DURATION_MS = 100_000;
+const TURN_DURATION_MS = 200_000;
 const TIMEOUT_GRACE_MS = 2_000;
 
 const AVATAR_COLORS = ['#E74C3C', '#3498DB', '#2ECC71', '#F39C12', '#9B59B6', '#1ABC9C', '#E67E22'];
@@ -54,6 +54,7 @@ export default function GameScreen() {
     playerId: string;
     type: 'correct' | 'wrong';
     uid: string;
+    word: string;
   } | null>(null);
   const gameRef = useRef<Game | null>(null);
 
@@ -89,6 +90,7 @@ export default function GameScreen() {
       timerAnimRef.current?.stop();
       pulseAnimRef.current?.stop();
       if (intervalRef.current) clearInterval(intervalRef.current);
+      setFeedbackInfo(null);
       return;
     }
 
@@ -140,7 +142,10 @@ export default function GameScreen() {
         clearInterval(intervalRef.current!);
         intervalRef.current = null;
         if (activeTurnId.current === currentTurnId && !submittingRef.current) {
-          handleTurnEnd(false, currentTurnId);
+          const g = gameRef.current;
+          const pid = g?.playerOrder[g.currentPlayerIndex];
+          const timedOutWord = pid ? (g?.guesses?.[pid] ?? '') : '';
+          handleTurnEnd(false, currentTurnId, timedOutWord);
         }
       }
     }, 100);
@@ -153,19 +158,20 @@ export default function GameScreen() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [game?.turnId, userId]);
 
+  useEffect(() => {
+    const r = game?.lastResult;
+    if (!r) return;
+    setFeedbackInfo({ playerId: r.playerId, type: r.correct ? 'correct' : 'wrong', uid: r.uid, word: r.word });
+  }, [game?.lastResult?.uid]);
+
   const handleTurnEnd = useCallback(
-    async (isCorrect: boolean, turnId: string) => {
+    async (isCorrect: boolean, turnId: string, word: string) => {
       if (submittingRef.current) return;
       submittingRef.current = true;
       setSubmitting(true);
-      const g = gameRef.current;
-      if (g) {
-        const playerId = g.playerOrder[g.currentPlayerIndex];
-        setFeedbackInfo({ playerId, type: isCorrect ? 'correct' : 'wrong', uid: turnId });
-      }
       await Promise.all([
         setPlayerGuess(gameCode as string, userId, ''),
-        submitTurn(gameCode as string, isCorrect, turnId),
+        submitTurn(gameCode as string, isCorrect, turnId, word),
       ]);
     },
     [gameCode, userId],
@@ -174,7 +180,7 @@ export default function GameScreen() {
   async function handleSubmitGuess() {
     if (!game || submittingRef.current) return;
     const correct = guess.trim().toLowerCase() === game.currentWord.toLowerCase();
-    await handleTurnEnd(correct, game.turnId);
+    await handleTurnEnd(correct, game.turnId, guess.trim());
   }
 
   // ── Loading / not found ──────────────────────────────────────
@@ -315,7 +321,7 @@ function ArenaView({
   timeLeft: number;
   timerColor: Animated.AnimatedInterpolation<string>;
   pulseAnim: Animated.Value;
-  feedbackInfo: { playerId: string; type: 'correct' | 'wrong'; uid: string } | null;
+  feedbackInfo: { playerId: string; type: 'correct' | 'wrong'; uid: string; word: string } | null;
   guesses: Record<string, string>;
 }) {
   const { width } = useWindowDimensions();
@@ -327,8 +333,8 @@ function ArenaView({
   const positions = game.playerOrder.map((_, i) => {
     const angle = (i / game.playerOrder.length) * 2 * Math.PI - Math.PI / 2;
     return {
-      x: CENTER + RADIUS * Math.cos(angle),
-      y: CENTER + RADIUS * Math.sin(angle),
+      x: CENTER + (RADIUS - 30) * Math.cos(angle),
+      y: CENTER + (RADIUS - 30) * Math.sin(angle),
     };
   });
 
@@ -338,7 +344,7 @@ function ArenaView({
       {game.playerOrder.map((playerId, i) => {
         if (playerId !== currentPlayerId) return null;
         const angle = (i / game.playerOrder.length) * 2 * Math.PI - Math.PI / 2;
-        const lineLen = RADIUS - 80;
+        const lineLen = RADIUS - 90;
         return (
           <View
             key={`line-${playerId}`}
@@ -383,6 +389,7 @@ function ArenaView({
           <FeedbackIcon
             key={feedbackInfo.uid}
             type={feedbackInfo.type}
+            word={feedbackInfo.word}
             x={positions[idx].x}
             y={positions[idx].y}
           />
@@ -402,10 +409,12 @@ function ArenaView({
 
 function FeedbackIcon({
   type,
+  word,
   x,
   y,
 }: {
   type: 'correct' | 'wrong';
+  word: string;
   x: number;
   y: number;
 }) {
@@ -416,13 +425,13 @@ function FeedbackIcon({
 
   useEffect(() => {
     const floatUp = Animated.timing(translateY, {
-      toValue: -64,
-      duration: 1000,
+      toValue: -84,
+      duration: 3000,
       useNativeDriver: true,
     });
     const fadeOut = Animated.sequence([
-      Animated.delay(450),
-      Animated.timing(opacity, { toValue: 0, duration: 550, useNativeDriver: true }),
+      Animated.delay(800),
+      Animated.timing(opacity, { toValue: 0, duration: 1000, useNativeDriver: true }),
     ]);
 
     if (type === 'correct') {
@@ -451,20 +460,20 @@ function FeedbackIcon({
       pointerEvents="none"
       style={{
         position: 'absolute',
-        left: x - 22,
-        top: y - 62,
-        width: 44,
-        height: 44,
-        justifyContent: 'center',
+        left: x + 5,
+        top: y - 25,
+        flexDirection: 'row',
         alignItems: 'center',
+        gap: 4,
         transform: [{ translateY }, { translateX }, { scale }],
         opacity,
         zIndex: 100,
       }}
     >
-      <Text style={{ fontSize: 30, lineHeight: 36 }}>
+      <Text style={{ fontSize: 16 }}>
         {type === 'correct' ? '✅' : '❌'}
       </Text>
+      {!!word && <Text style={{ fontSize: 12, color: '#fff', fontWeight: '700' }}>{word}</Text>}
     </Animated.View>
   );
 }
@@ -494,7 +503,7 @@ function PlayerAvatar({
     <View
       style={[
         styles.avatarContainer,
-        { position: 'absolute', left: x - 28, top: y - 28 },
+        { position: 'absolute', left: x - 20, top: y - 20 },
       ]}
     >
       <View
@@ -537,8 +546,8 @@ function BombCenter({
         styles.bombContainer,
         {
           position: 'absolute',
-          left: center - 46,
-          top: center - 46,
+          left: center - 35,
+          top: center - 35,
           borderColor: timerColor,
           transform: [{ scale: pulseAnim }],
         },
@@ -725,28 +734,28 @@ const styles = StyleSheet.create({
 
   // Bomb
   bombContainer: {
-    width: 92,
-    height: 92,
-    borderRadius: 46,
+    width: 69,
+    height: 69,
+    borderRadius: 35,
     borderWidth: 3,
     justifyContent: 'center',
     alignItems: 'center',
     backgroundColor: Colors.surface,
     gap: 0,
   },
-  bombEmoji: { fontSize: 38, lineHeight: 46 },
-  bombTimer: { fontSize: 18, fontWeight: '800', lineHeight: 22 },
+  bombEmoji: { fontSize: 28 },
+  bombTimer: { fontSize: 14, fontWeight: '800' },
 
   // Player avatars
   avatarContainer: {
-    width: 56,
+    width: 42,
     alignItems: 'center',
     gap: 3,
   },
   avatarCircle: {
-    width: 54,
-    height: 54,
-    borderRadius: 27,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     justifyContent: 'center',
     alignItems: 'center',
     borderWidth: 2,
@@ -760,9 +769,9 @@ const styles = StyleSheet.create({
     elevation: 8,
   },
   avatarDead: { opacity: 0.35 },
-  avatarInitial: { color: '#fff', fontSize: 20, fontWeight: '800' },
+  avatarInitial: { color: '#fff', fontSize: 15, fontWeight: '800' },
   avatarName: { fontSize: 11, color: Colors.textSub, fontWeight: '600', textAlign: 'center' },
-  avatarLives: { fontSize: 11, textAlign: 'center' },
+  avatarLives: { fontSize: 8, textAlign: 'center' },
   avatarGuess: { fontSize: 11, color: Colors.textMuted, textAlign: 'center', fontStyle: 'italic', maxWidth: 64 },
 
   // Input
@@ -841,7 +850,7 @@ const styles = StyleSheet.create({
   leaveBtn: { alignItems: 'center', paddingVertical: 12 },
   leaveBtnText: { color: Colors.textSub, fontSize: 14 },
   playAgainBtn: {
-    backgroundColor: Colors.primary, borderRadius: 14, width: 150,
+    backgroundColor: Colors.primary, borderRadius: 14, width: '100%',
     paddingVertical: 16, alignItems: 'center', marginTop: 'auto',
   },
   // Finished screen

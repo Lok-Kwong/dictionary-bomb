@@ -27,6 +27,7 @@ export interface Game {
   turnId: string;
   winnerId?: string;
   guesses?: Record<string, string>;
+  lastResult?: { playerId: string; correct: boolean; word: string; uid: string };
 }
 
 function genCode(): string {
@@ -88,6 +89,7 @@ export async function submitTurn(
   gameCode: string,
   isCorrect: boolean,
   turnId: string,
+  word: string,
 ): Promise<void> {
   await runTransaction(ref(db, `games/${gameCode}`), (game: Game | null) => {
     if (!game || game.status !== 'active') return;
@@ -109,6 +111,8 @@ export async function submitTurn(
       [currentPlayerId]: currentPlayer,
     };
 
+    const lastResult = { playerId: currentPlayerId, correct: isCorrect, word, uid: turnId };
+
     const alivePlayers = Object.keys(updatedPlayers).filter((id) => updatedPlayers[id].isAlive);
     if (alivePlayers.length <= 1) {
       return {
@@ -116,6 +120,7 @@ export async function submitTurn(
         status: 'finished' as const,
         players: updatedPlayers,
         winnerId: alivePlayers[0] ?? null,
+        lastResult,
       };
     }
 
@@ -147,6 +152,7 @@ export async function submitTurn(
       currentDefinition: nextDef,
       timerStart: Date.now(),
       turnId: genTurnId(),
+      lastResult,
     };
   });
 }
@@ -191,6 +197,7 @@ export async function resetGame(gameCode: string): Promise<void> {
     timerStart: 0,
     turnId: '',
     winnerId: null,
+    lastResult: null,
   });
 }
 
