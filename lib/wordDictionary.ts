@@ -3,7 +3,7 @@ export interface WordEntry {
   definition: string;
 }
 
-export const WORD_DICTIONARY: WordEntry[] = [
+export var WORD_DICTIONARY: WordEntry[] = [
   // Nature & Geography
   { word: 'lighthouse', definition: 'A tower built near the coast with a powerful light at the top to warn and guide ships at sea.' },
   { word: 'avalanche', definition: 'A sudden, rapid flow of snow, ice, and debris cascading down a mountain slope.' },
@@ -151,7 +151,7 @@ export function getRandomWord(): WordEntry {
 }
 
 export function getRandomWordExcluding(excludeWord: string): WordEntry {
-  const pool = WORD_DICTIONARY.filter(e => e.word !== excludeWord);
-  const idx = Math.floor(Math.random() * pool.length);
-  return pool[idx];
+  WORD_DICTIONARY = WORD_DICTIONARY.filter(e => e.word !== excludeWord);
+  const idx = Math.floor(Math.random() * WORD_DICTIONARY.length);
+  return WORD_DICTIONARY[idx];
 }

@@ -470,7 +470,7 @@ function FeedbackIcon({
         zIndex: 100,
       }}
     >
-      <Text style={{ fontSize: 16 }}>
+      <Text style={{ fontSize: 14 }}>
         {type === 'correct' ? '✅' : '❌'}
       </Text>
       {!!word && <Text style={{ fontSize: 12, color: '#fff', fontWeight: '700' }}>{word}</Text>}
@@ -772,7 +772,7 @@ const styles = StyleSheet.create({
   avatarInitial: { color: '#fff', fontSize: 15, fontWeight: '800' },
   avatarName: { fontSize: 11, color: Colors.textSub, fontWeight: '600', textAlign: 'center' },
   avatarLives: { fontSize: 8, textAlign: 'center' },
-  avatarGuess: { fontSize: 11, color: Colors.textMuted, textAlign: 'center', fontStyle: 'italic', maxWidth: 64 },
+  avatarGuess: { fontSize: 11, color: Colors.textMuted, textAlign: 'center', fontStyle: 'italic', maxWidth: 250 },
 
   // Input
   inputSection: {
