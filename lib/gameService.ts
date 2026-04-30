@@ -1,6 +1,9 @@
 import {
   get,
+  limitToLast,
   onValue,
+  push,
+  query,
   ref,
   runTransaction,
   set,
@@ -8,6 +11,15 @@ import {
 } from 'firebase/database';
 import { db } from './firebase';
 import { getRandomWord, getRandomWordExcluding } from './wordDictionary';
+
+export interface ChatMessage {
+  id?: string;
+  userId: string;
+  username: string;
+  message: string;
+  timestamp: number;
+  type: 'user' | 'system';
+}
 
 export interface Player {
   username: string;
@@ -197,7 +209,6 @@ export async function resetGame(gameCode: string): Promise<void> {
     timerStart: 0,
     turnId: '',
     winnerId: null,
-    lastResult: null,
   });
 }
 
@@ -209,6 +220,41 @@ export function subscribeToGame(gameCode: string, onUpdate: (game: Game | null) 
   const gameRef = ref(db, `games/${gameCode}`);
   const unsub = onValue(gameRef, (snap) => {
     onUpdate(snap.exists() ? (snap.val() as Game) : null);
+  });
+  return unsub;
+}
+
+export async function sendChatMessage(
+  gameCode: string,
+  userId: string,
+  username: string,
+  message: string,
+): Promise<void> {
+  const chatRef = ref(db, `games/${gameCode}/chat`);
+  const newMsgRef = push(chatRef);
+  await set(newMsgRef, {
+    userId,
+    username,
+    message,
+    timestamp: Date.now(),
+    type: 'user',
+  });
+}
+
+export function subscribeToChat(
+  gameCode: string,
+  onUpdate: (messages: ChatMessage[]) => void,
+): () => void {
+  const chatQuery = query(ref(db, `games/${gameCode}/chat`), limitToLast(50));
+  const unsub = onValue(chatQuery, (snap) => {
+    if (!snap.exists()) {
+      onUpdate([]);
+      return;
+    }
+    const data = snap.val() as Record<string, Omit<ChatMessage, 'id'>>;
+    const msgs: ChatMessage[] = Object.entries(data).map(([id, val]) => ({ id, ...val }));
+    msgs.sort((a, b) => a.timestamp - b.timestamp);
+    onUpdate(msgs);
   });
   return unsub;
 }
