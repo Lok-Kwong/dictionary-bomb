@@ -4,6 +4,7 @@ import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'rea
 import { Colors, S } from '../../../constants/theme';
 import { Game } from '../../../lib/gameService';
 import { avatarColor } from '../components/avatarColor';
+import ChatPanel from '../components/ChatPanel';
 
 export default function WaitingScreen({
   game,
@@ -21,6 +22,11 @@ export default function WaitingScreen({
   const isHost = game.hostId === userId;
   const playerCount = Object.keys(game.players).length;
   const [copied, setCopied] = useState(false);
+  const [chatOpen, setChatOpen] = useState(false);
+
+  const username = game.players[userId]?.username ?? '';
+  const lastWord = game.lastResult?.word;
+  const lastWordCorrect = game.lastResult?.correct;
 
   async function handleCopy() {
     await Clipboard.setStringAsync(gameCode);
@@ -31,7 +37,12 @@ export default function WaitingScreen({
   return (
     <View style={styles.container}>
       <View style={styles.waitingInner}>
-        <Text style={styles.waitingTitle}>Waiting Room</Text>
+        <View style={styles.titleRow}>
+          <Text style={styles.waitingTitle}>Waiting Room</Text>
+          <TouchableOpacity style={styles.chatBtn} onPress={() => setChatOpen(true)} activeOpacity={0.8}>
+            <Text style={styles.chatBtnText}>💬 Chat</Text>
+          </TouchableOpacity>
+        </View>
 
         <View style={styles.codeCard}>
           <Text style={styles.codeLabel}>GAME CODE</Text>
@@ -79,6 +90,16 @@ export default function WaitingScreen({
           <Text style={styles.leaveBtnText}>Leave</Text>
         </TouchableOpacity>
       </View>
+
+      <ChatPanel
+        isOpen={chatOpen}
+        onClose={() => setChatOpen(false)}
+        gameCode={gameCode}
+        userId={userId}
+        username={username}
+        lastWord={lastWord}
+        lastWordCorrect={lastWordCorrect}
+      />
     </View>
   );
 }
@@ -87,7 +108,17 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.bg },
   disabled: { opacity: 0.4 },
   waitingInner: { flex: 1, paddingHorizontal: 24, paddingTop: 72, paddingBottom: 32, gap: 20 },
+  titleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   waitingTitle: { ...S.h1 },
+  chatBtn: {
+    backgroundColor: Colors.card,
+    borderRadius: 20,
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  chatBtnText: { color: Colors.text, fontSize: 13, fontWeight: '600' },
   codeCard: {
     backgroundColor: Colors.card, borderRadius: 16, padding: 24,
     alignItems: 'center', borderWidth: 1, borderColor: Colors.border, gap: 6,

@@ -23,6 +23,7 @@ import {
 } from '../../lib/gameService';
 import { getUserId } from '../../lib/storage';
 import ArenaView from './components/ArenaView';
+import ChatPanel from './components/ChatPanel';
 import FinishedScreen from './screens/FinishedScreen';
 import WaitingScreen from './screens/WaitingScreen';
 
@@ -42,6 +43,7 @@ export default function GameScreen() {
   const [timeLeft, setTimeLeft] = useState(10);
   const [submitting, setSubmitting] = useState(false);
   const [showFinished, setShowFinished] = useState(false);
+  const [chatOpen, setChatOpen] = useState(false);
   const submittingRef = useRef(false);
   const [feedbackInfo, setFeedbackInfo] = useState<{
     playerId: string;
@@ -233,66 +235,88 @@ export default function GameScreen() {
     outputRange: [Colors.primary, Colors.warning, Colors.success],
   });
 
+  const username = game.players[userId]?.username ?? '';
+
   return (
-    <KeyboardAvoidingView
-      style={styles.container}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-    >
-      {/* Definition */}
-      <View style={styles.definitionSection}>
-        <Text style={styles.defLabel}>DEFINITION</Text>
-        <Text style={styles.defText} numberOfLines={4}>
-          {game.currentDefinition}
-        </Text>
-      </View>
+    <View style={styles.container}>
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      >
+        {/* Definition */}
+        <View style={styles.definitionSection}>
+          <View style={styles.defHeader}>
+            <Text style={styles.defLabel}>DEFINITION</Text>
+            <TouchableOpacity style={styles.chatIconBtn} onPress={() => setChatOpen(true)} activeOpacity={0.75}>
+              <Text style={styles.chatIconBtnText}>💬</Text>
+            </TouchableOpacity>
+          </View>
+          <Text style={styles.defText} numberOfLines={4}>
+            {game.currentDefinition}
+          </Text>
+        </View>
 
-      {/* Circular arena */}
-      <View style={styles.arenaContainer}>
-        <ArenaView
-          game={game}
-          userId={userId}
-          currentPlayerId={currentPlayerId}
-          timeLeft={timeLeft}
-          timerColor={timerColor}
-          pulseAnim={pulseAnim}
-          feedbackInfo={feedbackInfo}
-          guesses={game.guesses ?? {}}
-        />
-      </View>
-
-      {/* Input */}
-      {isMyTurn && !submitting ? (
-        <View style={styles.inputSection}>
-          <TextInput
-            style={styles.guessInput}
-            value={guess}
-            onChangeText={(text) => {
-              setGuess(text);
-              setPlayerGuess(gameCode as string, userId, text);
-            }}
-            placeholder="Type the word…"
-            placeholderTextColor={Colors.textMuted}
-            autoCapitalize="none"
-            autoCorrect={false}
-            autoFocus
-            returnKeyType="done"
-            onSubmitEditing={handleSubmitGuess}
+        {/* Circular arena */}
+        <View style={styles.arenaContainer}>
+          <ArenaView
+            game={game}
+            userId={userId}
+            currentPlayerId={currentPlayerId}
+            timeLeft={timeLeft}
+            timerColor={timerColor}
+            pulseAnim={pulseAnim}
+            feedbackInfo={feedbackInfo}
+            guesses={game.guesses ?? {}}
           />
-          <TouchableOpacity
-            style={[styles.submitBtn, !guess.trim() && styles.disabled]}
-            onPress={handleSubmitGuess}
-            disabled={!guess.trim()}
-            activeOpacity={0.85}
-          >
-            <Text style={styles.submitBtnText}>Submit</Text>
-          </TouchableOpacity>
         </View>
-      ) : !submitting ? (
-        <View style={styles.watchingBanner}>
-          <Text style={styles.watchingText}> Watching…</Text>
-        </View>
-      ) : null}
-    </KeyboardAvoidingView>
+
+        {/* Input */}
+        {isMyTurn && !submitting ? (
+          <View style={styles.inputSection}>
+            <TextInput
+              style={styles.guessInput}
+              value={guess}
+              onChangeText={(text) => {
+                setGuess(text);
+                setPlayerGuess(gameCode as string, userId, text);
+              }}
+              placeholder="Type the word…"
+              placeholderTextColor={Colors.textMuted}
+              autoCapitalize="none"
+              autoCorrect={false}
+              autoFocus
+              returnKeyType="done"
+              onSubmitEditing={handleSubmitGuess}
+            />
+            <TouchableOpacity
+              style={[styles.submitBtn, !guess.trim() && styles.disabled]}
+              onPress={handleSubmitGuess}
+              disabled={!guess.trim()}
+              activeOpacity={0.85}
+            >
+              <Text style={styles.submitBtnText}>Submit</Text>
+            </TouchableOpacity>
+          </View>
+        ) : !submitting ? (
+          <View style={styles.watchingBanner}>
+            <Text style={styles.watchingText}>Watching…</Text>
+            <TouchableOpacity style={styles.chatBtnInline} onPress={() => setChatOpen(true)} activeOpacity={0.75}>
+              <Text style={styles.chatBtnInlineText}>💬 Chat</Text>
+            </TouchableOpacity>
+          </View>
+        ) : null}
+      </KeyboardAvoidingView>
+
+      <ChatPanel
+        isOpen={chatOpen}
+        onClose={() => setChatOpen(false)}
+        gameCode={gameCode as string}
+        userId={userId}
+        username={username}
+        lastWord={game.lastResult?.word}
+        lastWordCorrect={game.lastResult?.correct}
+      />
+    </View>
   );
 }
 
@@ -316,8 +340,24 @@ const styles = StyleSheet.create({
     paddingBottom: 12,
     gap: 6,
   },
+  defHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
   defLabel: { fontSize: 11, fontWeight: '700', color: Colors.textMuted, letterSpacing: 1.5 },
   defText: { ...S.body, fontSize: 17, lineHeight: 26 },
+  chatIconBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: Colors.card,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  chatIconBtnText: { fontSize: 16 },
 
   arenaContainer: {
     flex: 1,
@@ -354,14 +394,26 @@ const styles = StyleSheet.create({
   submitBtnText: { color: '#fff', fontSize: 15, fontWeight: '700' },
 
   watchingBanner: {
+    flexDirection: 'row',
     marginHorizontal: 16,
     marginBottom: 32,
     backgroundColor: Colors.surface,
     borderRadius: 12,
     paddingVertical: 14,
+    paddingHorizontal: 16,
     alignItems: 'center',
+    justifyContent: 'space-between',
     borderWidth: 1,
     borderColor: Colors.border,
   },
   watchingText: { ...S.body, color: Colors.textSub },
+  chatBtnInline: {
+    backgroundColor: Colors.card,
+    borderRadius: 16,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  chatBtnInlineText: { color: Colors.text, fontSize: 13, fontWeight: '600' },
 });
