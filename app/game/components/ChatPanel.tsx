@@ -155,7 +155,7 @@ export default function ChatPanel({
             }
             ListEmptyComponent={
               <View style={styles.emptyChat}>
-                <Text style={styles.emptyChatText}>No messages yet.{'\n'}Say hi! 👋</Text>
+                <Text style={styles.emptyChatText}>No messages yet.</Text>
               </View>
             }
           />

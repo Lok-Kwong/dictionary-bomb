@@ -1,19 +1,18 @@
+import { router } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import {
-  View,
+  ActivityIndicator,
+  KeyboardAvoidingView,
+  Platform,
+  StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
-  StyleSheet,
-  KeyboardAvoidingView,
-  Platform,
-  ActivityIndicator,
-  Alert,
+  View
 } from 'react-native';
-import { router } from 'expo-router';
 import { Colors, S } from '../constants/theme';
-import { getUsername, getUserId } from '../lib/storage';
 import { createGame, joinGame } from '../lib/gameService';
+import { getUserId, getUsername } from '../lib/storage';
 
 export default function LobbyScreen() {
   const [username, setUsername] = useState('');
@@ -64,7 +63,6 @@ export default function LobbyScreen() {
     >
       <View style={styles.inner}>
         <View style={styles.header}>
-          <Text style={styles.greeting}>Hey, {username} 👋</Text>
           <Text style={styles.title}>Ready to play?</Text>
         </View>
 

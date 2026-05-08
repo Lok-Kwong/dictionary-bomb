@@ -1,5 +1,5 @@
 import React from 'react';
-import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { Colors, S } from '../../../constants/theme';
 import { Game } from '../../../lib/gameService';
 import { avatarColor } from '../components/avatarColor';
@@ -56,6 +56,13 @@ export default function FinishedScreen({
           </TouchableOpacity>
         )}
 
+        {!isHost && (
+          <View style={styles.waitHostRow}>
+            <ActivityIndicator size="small" color={Colors.textSub} />
+            <Text style={styles.waitHostText}>Waiting for host</Text>
+          </View>
+        )}
+
         <TouchableOpacity style={styles.leaveBtn} onPress={onLeave}>
           <Text style={styles.leaveBtnText}>Back to Lobby</Text>
         </TouchableOpacity>
@@ -68,6 +75,8 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.bg },
   waitingDot: { width: 10, height: 10, borderRadius: 5 },
   leaveBtn: { alignItems: 'center', paddingVertical: 12 },
+  waitHostRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  waitHostText: { color: Colors.textSub, fontSize: 16 },
   leaveBtnText: { color: Colors.textSub, fontSize: 14 },
   startBtnText: { color: '#fff', fontSize: 17, fontWeight: '700' },
   playAgainBtn: {
