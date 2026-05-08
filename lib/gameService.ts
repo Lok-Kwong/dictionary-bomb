@@ -1,6 +1,7 @@
 import {
   get,
   limitToLast,
+  onDisconnect,
   onValue,
   push,
   query,
@@ -40,6 +41,7 @@ export interface Game {
   winnerId?: string;
   guesses?: Record<string, string>;
   lastResult?: { playerId: string; correct: boolean; word: string; uid: string };
+  hostOnline?: boolean;
 }
 
 function genCode(): string {
@@ -64,6 +66,7 @@ export async function createGame(userId: string, username: string): Promise<stri
     currentDefinition: entry.definition,
     timerStart: 0,
     turnId: '',
+    hostOnline: true,
   };
   await set(ref(db, `games/${code}`), game);
   return code;
@@ -167,6 +170,14 @@ export async function submitTurn(
       lastResult,
     };
   });
+}
+
+export function registerHostPresence(gameCode: string): () => void {
+  const presenceRef = ref(db, `games/${gameCode}/hostOnline`);
+  set(presenceRef, true);
+  const disconnect = onDisconnect(presenceRef);
+  disconnect.set(false);
+  return () => disconnect.cancel();
 }
 
 export async function leaveGame(gameCode: string, userId: string): Promise<void> {

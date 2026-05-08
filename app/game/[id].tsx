@@ -15,6 +15,7 @@ import { Colors, S } from '../../constants/theme';
 import {
   Game,
   leaveGame,
+  registerHostPresence,
   resetGame,
   setPlayerGuess,
   startGame,
@@ -53,6 +54,8 @@ export default function GameScreen() {
   } | null>(null);
   const gameRef = useRef<Game | null>(null);
 
+  const cancelHostPresenceRef = useRef<(() => void) | null>(null);
+
   const timerAnim = useRef(new Animated.Value(1)).current;
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const timerAnimRef = useRef<Animated.CompositeAnimation | null>(null);
@@ -78,6 +81,20 @@ export default function GameScreen() {
     });
     return unsub;
   }, [gameCode]);
+
+  useEffect(() => {
+    if (!userId || !game || game.hostId !== userId) return;
+    const cancel = registerHostPresence(gameCode as string);
+    cancelHostPresenceRef.current = cancel;
+    return cancel;
+  }, [userId, game?.hostId, gameCode]);
+
+  useEffect(() => {
+    if (!game || !userId || game.hostId === userId) return;
+    if (game.hostOnline === false) {
+      router.replace('/lobby');
+    }
+  }, [game?.hostOnline, userId, game?.hostId]);
 
   // Manage timer + pulse when turn changes
   useEffect(() => {
@@ -205,7 +222,7 @@ export default function GameScreen() {
         game={game}
         userId={userId}
         onReset={() => { setShowFinished(false); resetGame(gameCode as string); }}
-        onLeave={async () => { await leaveGame(gameCode as string, userId); router.replace('/lobby'); }}
+        onLeave={async () => { cancelHostPresenceRef.current?.(); await leaveGame(gameCode as string, userId); router.replace('/lobby'); }}
       />
     );
   }
@@ -218,6 +235,7 @@ export default function GameScreen() {
         userId={userId}
         onStart={() => startGame(gameCode as string)}
         onLeave={async () => {
+          cancelHostPresenceRef.current?.();
           await leaveGame(gameCode as string, userId);
           router.replace('/lobby');
         }}
