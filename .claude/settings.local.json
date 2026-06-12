@@ -1,7 +1,9 @@
 {
   "permissions": {
     "allow": [
-      "Bash(npx tsc *)"
+      "Bash(npx tsc *)",
+      "Bash(cp \"/root/.claude/uploads/a7384d58-11db-5364-b595-c6d88f362bd1/4b7c31e0-bomb_with_fuse.png\" /home/user/dictionary-bomb/assets/images/bomb-fuse.png)",
+      "Bash(cp \"/root/.claude/uploads/a7384d58-11db-5364-b595-c6d88f362bd1/43c20696-spark_star.png\" /home/user/dictionary-bomb/assets/images/spark-star.png)"
     ]
   }
 }
