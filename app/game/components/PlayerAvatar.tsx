@@ -49,7 +49,7 @@ export default function PlayerAvatar({
         {player.isAlive ? '❤️'.repeat(player.lives) : '💀'}
       </Text>
       {!!guess && (
-        <Text style={styles.avatarGuess} numberOfLines={1}>{guess}</Text>
+        <Text style={styles.avatarGuess} numberOfLines={2}>{guess}</Text>
       )}
     </View>
   );
@@ -81,5 +81,8 @@ const styles = StyleSheet.create({
   avatarInitial: { color: '#fff', fontSize: 15, fontWeight: '800' },
   avatarName: { fontSize: 11, color: Colors.textSub, fontWeight: '600', textAlign: 'center' },
   avatarLives: { fontSize: 8, textAlign: 'center' },
-  avatarGuess: { fontSize: 11, color: Colors.textMuted, textAlign: 'center', fontStyle: 'italic', maxWidth: 250 },
+  // Wider than the 42px avatar container so long guesses (20+ letters) aren't
+  // truncated; alignItems:'center' on the container keeps it centered, and it
+  // wraps to a second line rather than clipping.
+  avatarGuess: { fontSize: 11, color: Colors.textMuted, textAlign: 'center', fontStyle: 'italic', width: 130 },
 });

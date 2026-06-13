@@ -1,10 +1,10 @@
 import React from 'react';
 import { Animated, View, useWindowDimensions } from 'react-native';
-import { Colors } from '../../../constants/theme';
 import { Game } from '../../../lib/gameService';
 import BombCenter from './BombCenter';
 import FeedbackIcon from './FeedbackIcon';
 import PlayerAvatar from './PlayerAvatar';
+import TurnArrow from './TurnArrow';
 
 export default function ArenaView({
   game,
@@ -15,6 +15,7 @@ export default function ArenaView({
   pulseAnim,
   feedbackInfo,
   guesses,
+  exploding,
 }: {
   game: Game;
   userId: string;
@@ -24,45 +25,35 @@ export default function ArenaView({
   pulseAnim: Animated.Value;
   feedbackInfo: { playerId: string; type: 'correct' | 'wrong'; uid: string; word: string } | null;
   guesses: Record<string, string>;
+  exploding: boolean;
 }) {
   const { width } = useWindowDimensions();
-  const ARENA = Math.min(width - 32, 320);
+  const ARENA = Math.min(width - 16, 420);
   const RADIUS = ARENA * 0.5;
   const CENTER = ARENA / 2;
+
+  // Distance of the avatar ring from the center. Pulled in from the arena edge
+  // so the bottom player sits higher and clears the keyboard.
+  const RING = RADIUS - 60;
 
   // Pre-compute player positions
   const positions = game.playerOrder.map((_, i) => {
     const angle = (i / game.playerOrder.length) * 2 * Math.PI - Math.PI / 2;
     return {
-      x: CENTER + (RADIUS - 30) * Math.cos(angle),
-      y: CENTER + (RADIUS - 30) * Math.sin(angle),
+      x: CENTER + RING * Math.cos(angle),
+      y: CENTER + RING * Math.sin(angle),
     };
   });
 
   return (
     <View style={{ width: ARENA, height: ARENA }}>
-      {/* Connecting line from bomb to current player */}
-      {game.playerOrder.map((playerId, i) => {
-        if (playerId !== currentPlayerId) return null;
-        const angle = (i / game.playerOrder.length) * 2 * Math.PI - Math.PI / 2;
-        const lineLen = RADIUS - 90;
-        return (
-          <View
-            key={`line-${playerId}`}
-            style={{
-              position: 'absolute',
-              left: CENTER,
-              top: CENTER - 1,
-              width: lineLen,
-              height: 2,
-              backgroundColor: Colors.primary,
-              opacity: 0.5,
-              transformOrigin: 'left center',
-              transform: [{ rotate: `${angle}rad` }],
-            } as any}
-          />
-        );
-      })}
+      {/* Arrow pointing from the bomb to the current player */}
+      {(() => {
+        const currentIdx = game.playerOrder.indexOf(currentPlayerId);
+        if (currentIdx < 0) return null;
+        const angle = (currentIdx / game.playerOrder.length) * 2 * Math.PI - Math.PI / 2;
+        return <TurnArrow center={CENTER} angle={angle} length={RADIUS - 120} />;
+      })()}
 
       {/* Player avatars */}
       {game.playerOrder.map((playerId, i) => {
@@ -103,6 +94,7 @@ export default function ArenaView({
         timeLeft={timeLeft}
         timerColor={timerColor}
         pulseAnim={pulseAnim}
+        exploding={exploding}
       />
     </View>
   );

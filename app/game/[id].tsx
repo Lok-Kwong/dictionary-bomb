@@ -28,8 +28,12 @@ import ChatPanel from './components/ChatPanel';
 import FinishedScreen from './screens/FinishedScreen';
 import WaitingScreen from './screens/WaitingScreen';
 
-const TURN_DURATION_MS = 200_000;
+const TURN_DURATION_MS = 20_000;
 const TIMEOUT_GRACE_MS = 2_000;
+// When the timer hits 0 the bomb explodes: the blast is shown for EXPLOSION_MS,
+// then there's a NEXT_TURN_DELAY_MS pause before the next turn actually begins.
+const EXPLOSION_MS = 900;
+const NEXT_TURN_DELAY_MS = 1_000;
 
 // ── Main screen ─────────────────────────────────────────────────
 
@@ -45,7 +49,10 @@ export default function GameScreen() {
   const [submitting, setSubmitting] = useState(false);
   const [showFinished, setShowFinished] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
+  const [exploding, setExploding] = useState(false);
   const submittingRef = useRef(false);
+  const explodedRef = useRef(false);
+  const explosionTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [feedbackInfo, setFeedbackInfo] = useState<{
     playerId: string;
     type: 'correct' | 'wrong';
@@ -60,6 +67,7 @@ export default function GameScreen() {
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const timerAnimRef = useRef<Animated.CompositeAnimation | null>(null);
   const pulseAnimRef = useRef<Animated.CompositeAnimation | null>(null);
+  const pulseDurationRef = useRef<number | null>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const activeTurnId = useRef('');
 
@@ -126,6 +134,14 @@ export default function GameScreen() {
 
     pulseAnimRef.current?.stop();
     pulseAnim.setValue(1);
+    pulseDurationRef.current = null;
+
+    explodedRef.current = false;
+    setExploding(false);
+    if (explosionTimeoutRef.current) {
+      clearTimeout(explosionTimeoutRef.current);
+      explosionTimeoutRef.current = null;
+    }
 
     setTimeLeft(Math.ceil(remaining / 1000));
 
@@ -139,18 +155,39 @@ export default function GameScreen() {
       const secs = Math.max(0, Math.ceil(timeLeftMs / 1000));
       setTimeLeft(secs);
 
-      // Start pulsing bomb at 3 seconds
-      if (secs <= 3 && secs > 0 && !pulseAnimRef.current) {
+      // Pulse the bomb in three speed tiers: a slow pulse from 15s, faster at
+      // 10s, faster again at 5s. The loop only restarts when the tier changes,
+      // so the scale always resets from its resting point (no choppiness).
+      let duration: number | null = null;
+      if (timeLeftMs <= 5000) duration = 150;
+      else if (timeLeftMs <= 10000) duration = 300;
+      else if (timeLeftMs <= 15000) duration = 500;
+
+      if (duration !== null && timeLeftMs > 0 && pulseDurationRef.current !== duration) {
+        pulseDurationRef.current = duration;
+        pulseAnimRef.current?.stop();
+        pulseAnim.setValue(1);
         pulseAnimRef.current = Animated.loop(
           Animated.sequence([
-            Animated.timing(pulseAnim, { toValue: 1.18, duration: 200, useNativeDriver: false }),
-            Animated.timing(pulseAnim, { toValue: 1, duration: 200, useNativeDriver: false }),
+            Animated.timing(pulseAnim, { toValue: 1.18, duration, useNativeDriver: false }),
+            Animated.timing(pulseAnim, { toValue: 1, duration, useNativeDriver: false }),
           ])
         );
         pulseAnimRef.current.start();
       }
 
-      if (timeLeftMs <= -graceMs) {
+      // Detonate exactly once when the clock runs out.
+      if (timeLeftMs <= 0 && !explodedRef.current) {
+        explodedRef.current = true;
+        pulseAnimRef.current?.stop();
+        pulseAnim.setValue(1);
+        setExploding(true);
+        explosionTimeoutRef.current = setTimeout(() => setExploding(false), EXPLOSION_MS);
+      }
+
+      // Advance the turn only after the explosion has played out and the
+      // post-explosion pause has elapsed (plus any disconnect grace).
+      if (timeLeftMs <= -(graceMs + EXPLOSION_MS + NEXT_TURN_DELAY_MS)) {
         clearInterval(intervalRef.current!);
         intervalRef.current = null;
         if (activeTurnId.current === currentTurnId && !submittingRef.current) {
@@ -164,6 +201,10 @@ export default function GameScreen() {
 
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current);
+      if (explosionTimeoutRef.current) {
+        clearTimeout(explosionTimeoutRef.current);
+        explosionTimeoutRef.current = null;
+      }
       timerAnimRef.current?.stop();
       pulseAnimRef.current?.stop();
     };
@@ -174,6 +215,19 @@ export default function GameScreen() {
     const r = game?.lastResult;
     if (!r) return;
     setFeedbackInfo({ playerId: r.playerId, type: r.correct ? 'correct' : 'wrong', uid: r.uid, word: r.word });
+
+    // Detonate the bomb on a wrong guess too — not just when the timer runs out.
+    // This runs after the turn-change effect (declared earlier) has reset the
+    // explosion for the new turn, so it gets the final say.
+    if (!r.correct) {
+      explodedRef.current = true;
+      pulseAnimRef.current?.stop();
+      pulseAnim.setValue(1);
+      setExploding(true);
+      if (explosionTimeoutRef.current) clearTimeout(explosionTimeoutRef.current);
+      explosionTimeoutRef.current = setTimeout(() => setExploding(false), EXPLOSION_MS);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [game?.lastResult?.uid]);
 
   const handleTurnEnd = useCallback(
@@ -285,6 +339,7 @@ export default function GameScreen() {
             pulseAnim={pulseAnim}
             feedbackInfo={feedbackInfo}
             guesses={game.guesses ?? {}}
+            exploding={exploding}
           />
         </View>
 
@@ -379,8 +434,9 @@ const styles = StyleSheet.create({
 
   arenaContainer: {
     flex: 1,
-    justifyContent: 'center',
+    justifyContent: 'flex-start',
     alignItems: 'center',
+    paddingTop: 8,
   },
 
   // Input
