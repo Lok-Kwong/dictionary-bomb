@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from 'react';
-import { Animated, Text } from 'react-native';
+import { Animated, Image, Text } from 'react-native';
 
 export default function FeedbackIcon({
   type,
@@ -64,9 +64,16 @@ export default function FeedbackIcon({
         zIndex: 100,
       }}
     >
-      <Text style={{ fontSize: 14 }}>
-        {type === 'correct' ? '✅' : '❌'}
-      </Text>
+      <Image
+        source={
+          type === 'correct'
+            ? require('../../../assets/images/checkmark.png')
+            : require('../../../assets/images/x.png')
+        }
+        style={{ width: 16, height: 16 }}
+        resizeMode="contain"
+      />
+
       {!!word && <Text style={{ fontSize: 12, color: '#fff', fontWeight: '700' }}>{word}</Text>}
     </Animated.View>
   );
