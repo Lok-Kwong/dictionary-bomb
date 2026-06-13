@@ -13,8 +13,8 @@ jest.mock('firebase/database', () => ({
 }));
 
 jest.mock('../lib/wordDictionary', () => ({
-  getRandomWord: jest.fn(() => ({ word: 'testword', definition: 'test definition' })),
-  getRandomWordExcluding: jest.fn(() => ({ word: 'newword', definition: 'new definition' })),
+  getRandomWord: jest.fn(() => ({ word: 'testword', definition: 'test definition', synonyms: ['testsyn'] })),
+  getRandomWordExcluding: jest.fn(() => ({ word: 'newword', definition: 'new definition', synonyms: ['newsyn'] })),
 }));
 
 import * as firebaseDB from 'firebase/database';
@@ -42,6 +42,7 @@ function makeGame(overrides: Partial<Game> = {}): Game {
     currentPlayerIndex: 0,
     currentWord: 'lighthouse',
     currentDefinition: 'A tall tower with a light.',
+    currentSynonyms: ['beacon', 'pharos'],
     timerStart: Date.now(),
     turnId: 'turn-abc',
     ...overrides,
@@ -69,6 +70,7 @@ describe('createGame', () => {
     expect(gameArg.players['user1']).toMatchObject({ username: 'Alice', lives: 2, isAlive: true });
     expect(gameArg.playerOrder).toEqual(['user1']);
     expect(gameArg.currentWord).toBe('testword');
+    expect(gameArg.currentSynonyms).toEqual(['testsyn']);
   });
 
   it('returns a 6-character game code', async () => {
@@ -188,6 +190,7 @@ describe('submitTurn – transaction logic', () => {
     const game = makeGame();
     const result = transactionCallback(game)!;
     expect(result.currentWord).toBe('newword');
+    expect(result.currentSynonyms).toEqual(['newsyn']);
   });
 
   it('keeps the same word on a wrong answer', async () => {
@@ -199,6 +202,7 @@ describe('submitTurn – transaction logic', () => {
     const game = makeGame();
     const result = transactionCallback(game)!;
     expect(result.currentWord).toBe('lighthouse');
+    expect(result.currentSynonyms).toEqual(['beacon', 'pharos']);
   });
 
   it('marks the game as finished when only one player remains alive', async () => {

@@ -36,6 +36,7 @@ export interface Game {
   currentPlayerIndex: number;
   currentWord: string;
   currentDefinition: string;
+  currentSynonyms: string[];
   timerStart: number;
   turnId: string;
   winnerId?: string;
@@ -64,6 +65,7 @@ export async function createGame(userId: string, username: string): Promise<stri
     currentPlayerIndex: 0,
     currentWord: entry.word,
     currentDefinition: entry.definition,
+    currentSynonyms: entry.synonyms,
     timerStart: 0,
     turnId: '',
     hostOnline: true,
@@ -153,10 +155,12 @@ export async function submitTurn(
     // Pick new word if correct, otherwise keep same word
     let nextWord = game.currentWord;
     let nextDef = game.currentDefinition;
+    let nextSynonyms = game.currentSynonyms;
     if (isCorrect) {
       const entry = getRandomWordExcluding(game.currentWord);
       nextWord = entry.word;
       nextDef = entry.definition;
+      nextSynonyms = entry.synonyms;
     }
 
     return {
@@ -165,6 +169,7 @@ export async function submitTurn(
       currentPlayerIndex: nextIndex,
       currentWord: nextWord,
       currentDefinition: nextDef,
+      currentSynonyms: nextSynonyms,
       timerStart: Date.now(),
       turnId: genTurnId(),
       lastResult,
@@ -217,6 +222,7 @@ export async function resetGame(gameCode: string): Promise<void> {
     currentPlayerIndex: 0,
     currentWord: entry.word,
     currentDefinition: entry.definition,
+    currentSynonyms: entry.synonyms,
     timerStart: 0,
     turnId: '',
     winnerId: null,

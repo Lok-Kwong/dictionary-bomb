@@ -23,6 +23,7 @@ import {
   subscribeToGame,
 } from '../../lib/gameService';
 import { getUserId } from '../../lib/storage';
+import { isAcceptedAnswer } from '../../lib/wordDictionary';
 import ArenaView from './components/ArenaView';
 import ChatPanel from './components/ChatPanel';
 import FinishedScreen from './screens/FinishedScreen';
@@ -245,7 +246,7 @@ export default function GameScreen() {
 
   async function handleSubmitGuess() {
     if (!game || submittingRef.current) return;
-    const correct = guess.trim().toLowerCase() === game.currentWord.toLowerCase();
+    const correct = isAcceptedAnswer(guess, game.currentWord, game.currentSynonyms);
     await handleTurnEnd(correct, game.turnId, guess.trim());
   }
 

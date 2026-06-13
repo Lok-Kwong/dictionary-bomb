@@ -1,4 +1,4 @@
-import { WORD_DICTIONARY, WordEntry, getRandomWord } from '../lib/wordDictionary';
+import { WORD_DICTIONARY, WordEntry, getRandomWord, isAcceptedAnswer } from '../lib/wordDictionary';
 
 describe('WORD_DICTIONARY', () => {
   it('contains at least one entry', () => {
@@ -18,6 +18,49 @@ describe('WORD_DICTIONARY', () => {
     const words = WORD_DICTIONARY.map((e) => e.word);
     const uniqueWords = new Set(words);
     expect(uniqueWords.size).toBe(words.length);
+  });
+
+  it('every entry has a synonyms array of non-empty strings', () => {
+    for (const entry of WORD_DICTIONARY) {
+      expect(Array.isArray(entry.synonyms)).toBe(true);
+      for (const syn of entry.synonyms) {
+        expect(typeof syn).toBe('string');
+        expect(syn.length).toBeGreaterThan(0);
+      }
+    }
+  });
+
+  it('never lists a word as its own synonym', () => {
+    for (const entry of WORD_DICTIONARY) {
+      const lowered = entry.synonyms.map((s) => s.toLowerCase());
+      expect(lowered).not.toContain(entry.word.toLowerCase());
+    }
+  });
+});
+
+describe('isAcceptedAnswer', () => {
+  it('accepts an exact match of the word (case-insensitive, trimmed)', () => {
+    expect(isAcceptedAnswer('Lighthouse', 'lighthouse', ['beacon'])).toBe(true);
+    expect(isAcceptedAnswer('  lighthouse  ', 'lighthouse', ['beacon'])).toBe(true);
+  });
+
+  it('accepts any synonym (case-insensitive, trimmed)', () => {
+    expect(isAcceptedAnswer('Beacon', 'lighthouse', ['beacon', 'pharos'])).toBe(true);
+    expect(isAcceptedAnswer(' pharos ', 'lighthouse', ['beacon', 'pharos'])).toBe(true);
+  });
+
+  it('rejects a word that is neither the answer nor a synonym', () => {
+    expect(isAcceptedAnswer('volcano', 'lighthouse', ['beacon'])).toBe(false);
+  });
+
+  it('rejects an empty or whitespace-only guess', () => {
+    expect(isAcceptedAnswer('', 'lighthouse', ['beacon'])).toBe(false);
+    expect(isAcceptedAnswer('   ', 'lighthouse', ['beacon'])).toBe(false);
+  });
+
+  it('works when synonyms are omitted or undefined', () => {
+    expect(isAcceptedAnswer('lighthouse', 'lighthouse')).toBe(true);
+    expect(isAcceptedAnswer('beacon', 'lighthouse', undefined as unknown as string[])).toBe(false);
   });
 });
 
